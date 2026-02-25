@@ -7,8 +7,12 @@ const fs = require('fs');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const client = new Client({ authStrategy: new LocalAuth() });
-
+const client = new Client({ 
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    }
+});
 const funcionariosAutorizados = [
     '5511930155485@c.us' 
 ];
@@ -87,12 +91,28 @@ client.on('ready', () => {
 });
 
 client.on('message_create', async (msg) => {
+    console.log(`\n[🔍 RASTREADOR] Nova mensagem detectada!`);
+    console.log(`- De: ${msg.from}`);
+    console.log(`- Para: ${msg.to}`);
+    console.log(`- Texto: ${msg.body}`);
+    console.log(`- Fui eu que enviei? (fromMe): ${msg.fromMe}`);
+
     const remetente = msg.from;
 
-    if (msg.fromMe && msg.to !== msg.from) return;
+    // Regra 1: Se eu enviei para outra pessoa (e não é o chat "Comigo mesmo" fantasma), ignora.
+    if (msg.fromMe && msg.to !== msg.from && !msg.to.includes('@lid')) {
+        console.log(`[⏭️ RASTREADOR] Ignorando: Mensagem enviada para outro chat.`);
+        return;
+    }
 
+    // Regra 2: O remetente está na lista de autorizados?
     if (funcionariosAutorizados.includes(remetente)) {
-        if (msg.fromMe && msg.body.includes('🤖')) return;
+        console.log(`[✅ RASTREADOR] Número AUTORIZADO! Iniciando análise...`);
+        
+        if (msg.fromMe && msg.body.includes('🤖')) {
+            console.log(`[🤖 RASTREADOR] Ignorando: Essa mensagem é a própria resposta do robô.`);
+            return;
+        }
 
         const chat = await msg.getChat();
         let textoParaAnalisar = msg.body;
@@ -180,7 +200,7 @@ client.on('message_create', async (msg) => {
             }
         }
 
-        // --- AÇÃO: REGISTRAR DESPESA (NOVO!) ---
+        // --- AÇÃO: REGISTRAR DESPESA ---
         else if (intencao.acao === 'registrar_despesa') {
             if (!intencao.despesa_descricao || !intencao.despesa_valor) {
                 msg.reply('🤖 Faltaram detalhes. Diga o que comprou e o valor. Ex: "Paguei 80 reais de conta de água".');
